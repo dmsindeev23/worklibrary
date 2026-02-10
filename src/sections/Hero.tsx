@@ -57,14 +57,14 @@ export function Hero() {
               variants={itemVariants}
               className="font-heading text-h1-mobile md:text-h1 text-graphite mb-6"
             >
-              Курированная библиотека микро-уроков для работодателей.
+              Hr-library.
             </motion.h1>
             
             <motion.p
               variants={itemVariants}
               className="text-body-lg text-graphite-secondary mb-8"
             >
-              Покупайте именно то, что нужно вашей команде — по одному уроку за раз. Видео + чек-лист + шаблоны.
+              Возьми именно то, что нужно вашей команде — по одному уроку за раз. Видео + чек-лист + шаблоны.
             </motion.p>
             
             <motion.div
@@ -88,7 +88,7 @@ export function Hero() {
               variants={itemVariants}
               className="text-small text-graphite-secondary"
             >
-              Создано для HR, основателей и руководителей команд.
+              Создано для HR, основателей,руководителей команд, а так же для тех, кто ищет работу.
             </motion.p>
           </motion.div>
 
