@@ -1,165 +1,191 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
-import type { User } from '@/types';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import type { User as AppUser } from '@/types';
+import { supabase } from '@/lib/supabaseClient';
 
-interface AuthState {
-  user: User | null;
-  isAuthenticated: boolean;
+// --- Access model ---
+export type EntitlementType = 'single' | 'subscription';
+
+export interface Entitlement {
+  id: string;
+  user_id: string;
+  module_id: string | null; // null when it's a subscription entitlement
+  type: EntitlementType;
+  expires_at: string | null;
+  created_at?: string;
 }
 
-type AuthAction =
-  | { type: 'LOGIN'; payload: User }
-  | { type: 'LOGOUT' }
-  | { type: 'ADD_PURCHASE'; payload: string }
-  | { type: 'UPDATE_PROGRESS'; payload: { moduleId: string; progress: number } }
-  | { type: 'SET_SUBSCRIPTION'; payload: User['subscription'] };
-
 interface AuthContextType {
-  user: User | null;
+  user: AppUser | null;
   isAuthenticated: boolean;
-  login: (email: string, name: string) => void;
-  logout: () => void;
-  addPurchase: (moduleId: string) => void;
-  updateProgress: (moduleId: string, progress: number) => void;
+  isAuthReady: boolean;
+
+  // Auth
+  signInWithMagicLink: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  logout: () => Promise<void>;
+
+  // Access
+  entitlements: Entitlement[];
+  refreshEntitlements: () => Promise<void>;
   hasPurchased: (moduleId: string) => boolean;
   hasSubscription: () => boolean;
-  setSubscription: (subscription: User['subscription']) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo user for development
-const demoUser: User = {
-  id: 'user-001',
-  email: 'demo@curatedlibrary.com',
-  name: 'Алекс Демо',
-  purchasedModules: ['mod-002', 'mod-005', 'mod-007'],
-  moduleProgress: {
-    'mod-002': 75,
-    'mod-005': 30,
-    'mod-007': 100,
-  },
-  subscription: {
-    id: 'sub-001',
-    plan: 'monthly',
-    startDate: '2024-01-01',
-    endDate: '2024-02-01',
-    status: 'active',
-  },
-};
+function toAppUser(supabaseUser: any): AppUser {
+  const email: string = supabaseUser?.email ?? '';
+  const nameFromMeta = supabaseUser?.user_metadata?.full_name;
+  const fallbackName = email ? email.split('@')[0] : 'Пользователь';
 
-function authReducer(state: AuthState, action: AuthAction): AuthState {
-  switch (action.type) {
-    case 'LOGIN':
-      return {
-        ...state,
-        user: action.payload,
-        isAuthenticated: true,
-      };
-    case 'LOGOUT':
-      return {
-        ...state,
-        user: null,
-        isAuthenticated: false,
-      };
-    case 'ADD_PURCHASE':
-      if (!state.user) return state;
-      return {
-        ...state,
-        user: {
-          ...state.user,
-          purchasedModules: [...state.user.purchasedModules, action.payload],
-        },
-      };
-    case 'UPDATE_PROGRESS':
-      if (!state.user) return state;
-      return {
-        ...state,
-        user: {
-          ...state.user,
-          moduleProgress: {
-            ...state.user.moduleProgress,
-            [action.payload.moduleId]: action.payload.progress,
-          },
-        },
-      };
-    case 'SET_SUBSCRIPTION':
-      if (!state.user) return state;
-      return {
-        ...state,
-        user: {
-          ...state.user,
-          subscription: action.payload,
-        },
-      };
-    default:
-      return state;
-  }
+  return {
+    id: supabaseUser.id,
+    email,
+    name: nameFromMeta || fallbackName,
+    purchasedModules: [],
+    moduleProgress: {},
+  };
+}
+
+function isNotExpired(expiresAt: string | null): boolean {
+  if (!expiresAt) return true;
+  return new Date(expiresAt).getTime() > Date.now();
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(authReducer, {
-    user: demoUser, // Auto-login for demo
-    isAuthenticated: true,
-  });
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [entitlements, setEntitlements] = useState<Entitlement[]>([]);
 
-  const login = useCallback((email: string, name: string) => {
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email,
-      name,
-      purchasedModules: [],
-      moduleProgress: {},
+  const isAuthenticated = !!user;
+
+  const refreshEntitlements = useCallback(async () => {
+    if (!user) {
+      setEntitlements([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('entitlements')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[Supabase] entitlements fetch error:', error.message);
+      return;
+    }
+
+    setEntitlements((data as Entitlement[]) ?? []);
+  }, [user]);
+
+  // Bootstrap auth session
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      const sessionUser = data.session?.user;
+
+      if (!mounted) return;
+
+      if (sessionUser) {
+        const appUser = toAppUser(sessionUser);
+        setUser(appUser);
+      } else {
+        setUser(null);
+      }
+
+      setIsAuthReady(true);
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const sessionUser = session?.user;
+      if (sessionUser) {
+        setUser(toAppUser(sessionUser));
+      } else {
+        setUser(null);
+        setEntitlements([]);
+      }
+      setIsAuthReady(true);
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
     };
-    dispatch({ type: 'LOGIN', payload: newUser });
   }, []);
 
-  const logout = useCallback(() => {
-    dispatch({ type: 'LOGOUT' });
+  // Load entitlements after login
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!user) return;
+    void refreshEntitlements();
+  }, [isAuthReady, user, refreshEntitlements]);
+
+  const signInWithMagicLink = useCallback(async (email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return { ok: false as const, error: 'Введите email' };
+
+    // IMPORTANT: Redirect back to your site.
+    // Works for both local + prod; Supabase must allow these URLs in Auth settings.
+    const redirectTo = window.location.origin + '/#/dashboard';
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: cleanEmail,
+      options: { emailRedirectTo: redirectTo },
+    });
+
+    if (error) return { ok: false as const, error: error.message };
+    return { ok: true as const };
   }, []);
 
-  const addPurchase = useCallback((moduleId: string) => {
-    dispatch({ type: 'ADD_PURCHASE', payload: moduleId });
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
   }, []);
 
-  const updateProgress = useCallback((moduleId: string, progress: number) => {
-    dispatch({ type: 'UPDATE_PROGRESS', payload: { moduleId, progress } });
-  }, []);
-
-  const hasPurchased = useCallback((moduleId: string) => {
-    return state.user?.purchasedModules.includes(moduleId) ?? false;
-  }, [state.user]);
+  const hasPurchased = useCallback(
+    (moduleId: string) => {
+      return entitlements.some(
+        (e) => e.type === 'single' && e.module_id === moduleId && isNotExpired(e.expires_at)
+      );
+    },
+    [entitlements]
+  );
 
   const hasSubscription = useCallback(() => {
-    return state.user?.subscription?.status === 'active' || false;
-  }, [state.user]);
+    return entitlements.some((e) => e.type === 'subscription' && isNotExpired(e.expires_at));
+  }, [entitlements]);
 
-  const setSubscription = useCallback((subscription: User['subscription']) => {
-    dispatch({ type: 'SET_SUBSCRIPTION', payload: subscription });
-  }, []);
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        login,
-        logout,
-        addPurchase,
-        updateProgress,
-        hasPurchased,
-        hasSubscription,
-        setSubscription,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      isAuthenticated,
+      isAuthReady,
+      signInWithMagicLink,
+      logout,
+      entitlements,
+      refreshEntitlements,
+      hasPurchased,
+      hasSubscription,
+    }),
+    [
+      user,
+      isAuthenticated,
+      isAuthReady,
+      signInWithMagicLink,
+      logout,
+      entitlements,
+      refreshEntitlements,
+      hasPurchased,
+      hasSubscription,
+    ]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 }
