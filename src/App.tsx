@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { CartProvider } from '@/contexts/CartContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+
 import { Home } from '@/pages/Home';
 import { Library } from '@/pages/Library';
 import { ModuleDetail } from '@/pages/ModuleDetail';
@@ -11,6 +12,9 @@ import { Playback } from '@/pages/Playback';
 import { CollectionsPage } from '@/pages/Collections';
 import { DownloadsPage } from '@/pages/Downloads';
 import { Subscription } from '@/pages/Subscription';
+import { Login } from '@/pages/Login';
+
+import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 function App() {
   return (
@@ -23,12 +27,45 @@ function App() {
             <Route path="/library/:id" element={<ModuleDetail />} />
             <Route path="/about" element={<About />} />
             <Route path="/checkout" element={<Checkout />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/dashboard/playback/:id" element={<Playback />} />
-            <Route path="/dashboard/collections" element={<CollectionsPage />} />
-            <Route path="/dashboard/downloads" element={<DownloadsPage />} />
             <Route path="/collections" element={<CollectionsPage />} />
             <Route path="/subscription" element={<Subscription />} />
+
+            {/* Auth */}
+            <Route path="/login" element={<Login />} />
+
+            {/* Protected */}
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/playback/:id"
+              element={
+                <ProtectedRoute>
+                  <Playback />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/collections"
+              element={
+                <ProtectedRoute>
+                  <CollectionsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard/downloads"
+              element={
+                <ProtectedRoute>
+                  <DownloadsPage />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </HashRouter>
       </CartProvider>
