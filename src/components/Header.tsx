@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Menu, ShoppingBag } from 'lucide-react';
+import { Menu, ShoppingBag, LogOut } from 'lucide-react';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,13 +19,19 @@ const navItems = [
 export function Header() {
   const { isScrolled } = useScrollPosition();
   const { totalItems } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href.startsWith('/#')) return false;
     return location.pathname === href;
+  };
+
+  const onLogout = async () => {
+    await logout();
+    navigate('/', { replace: true });
   };
 
   return (
@@ -69,16 +75,25 @@ export function Header() {
               <>
                 <Link to="/dashboard">
                   <Button variant="ghost" className="text-small font-medium">
-                    Моя библиотека
+                    Личный кабинет
                   </Button>
                 </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onLogout}
+                  title="Выйти"
+                  className="text-graphite-secondary hover:text-graphite"
+                >
+                  <LogOut className="w-5 h-5" />
+                </Button>
                 <Link to="/library">
                   <Button className="btn-primary">В библиотеку</Button>
                 </Link>
               </>
             ) : (
               <>
-                <Link to="/dashboard">
+                <Link to="/login">
                   <Button variant="ghost" className="text-small font-medium">
                     Войти
                   </Button>
@@ -88,6 +103,7 @@ export function Header() {
                 </Link>
               </>
             )}
+
             <Link to="/checkout" className="relative">
               <Button variant="ghost" size="icon" className="relative">
                 <ShoppingBag className="w-5 h-5" />
@@ -112,7 +128,7 @@ export function Header() {
                 )}
               </Button>
             </Link>
-            
+
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -139,12 +155,29 @@ export function Header() {
                   </nav>
                   <div className="flex flex-col gap-3">
                     {isAuthenticated ? (
-                      <Link to="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
-                        <Button className="w-full btn-primary">Моя библиотека</Button>
-                      </Link>
+                      <>
+                        <Link
+                          to="/dashboard"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                          <Button className="w-full btn-primary">Личный кабинет</Button>
+                        </Link>
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={async () => {
+                            await onLogout();
+                            setIsMobileMenuOpen(false);
+                          }}
+                        >
+                          Выйти
+                        </Button>
+                      </>
                     ) : (
-                      <Link to="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
-                        <Button variant="outline" className="w-full">Войти</Button>
+                      <Link to="/login" onClick={() => setIsMobileMenuOpen(false)}>
+                        <Button variant="outline" className="w-full">
+                          Войти
+                        </Button>
                       </Link>
                     )}
                     <Link to="/library" onClick={() => setIsMobileMenuOpen(false)}>
